@@ -1,8 +1,35 @@
+use std::sync::LazyLock;
+
+use axum::http::header;
+use axum::response::{IntoResponse, Response};
 use image::codecs::jpeg::JpegEncoder;
 use image::ImageEncoder;
 use resvg::usvg;
 
-/// Supported output formats.
+use crate::error::AppError;
+
+// ---------------------------------------------------------------------------
+// Font database — built once, reused for every render
+// ---------------------------------------------------------------------------
+
+static FONT_DATA: &[u8] = include_bytes!("../fonts/DejaVuSans-Bold.ttf");
+
+fn make_usvg_options() -> usvg::Options<'static> {
+    let mut opts = usvg::Options {
+        font_family: "DejaVu Sans".to_string(),
+        ..Default::default()
+    };
+    opts.fontdb_mut().load_font_data(FONT_DATA.to_vec());
+    opts
+}
+
+static USVG_OPTIONS: LazyLock<usvg::Options<'static>> = LazyLock::new(make_usvg_options);
+
+// ---------------------------------------------------------------------------
+// Output format
+// ---------------------------------------------------------------------------
+
+/// Supported badge output formats, detected from the URL extension.
 pub enum Format {
     Svg,
     Png,
@@ -10,22 +37,23 @@ pub enum Format {
 }
 
 impl Format {
-    /// Detect format from file extension.
-    pub fn from_extension(path: &str) -> (String, Self) {
-        if let Some(name) = path.strip_suffix(".png") {
-            (name.to_string(), Format::Png)
-        } else if let Some(name) = path.strip_suffix(".jpg") {
-            (name.to_string(), Format::Jpeg)
-        } else if let Some(name) = path.strip_suffix(".jpeg") {
-            (name.to_string(), Format::Jpeg)
-        } else if let Some(name) = path.strip_suffix(".svg") {
-            (name.to_string(), Format::Svg)
-        } else {
-            (path.to_string(), Format::Svg)
+    /// Parse the subreddit name and format from a path segment like `"rust.png"`.
+    /// Returns `("rust", Format::Png)`. Defaults to SVG if no known extension.
+    pub fn strip(path: &str) -> (&str, Self) {
+        for (suffix, fmt) in [
+            (".png", Format::Png),
+            (".jpg", Format::Jpeg),
+            (".jpeg", Format::Jpeg),
+            (".svg", Format::Svg),
+        ] {
+            if let Some(name) = path.strip_suffix(suffix) {
+                return (name, fmt);
+            }
         }
+        (path, Format::Svg)
     }
 
-    pub fn content_type(&self) -> &'static str {
+    fn content_type(&self) -> &'static str {
         match self {
             Format::Svg => "image/svg+xml",
             Format::Png => "image/png",
@@ -34,65 +62,82 @@ impl Format {
     }
 }
 
-/// Parse SVG string into a usvg tree with the embedded font available.
-fn parse_svg(svg: &str) -> Result<usvg::Tree, String> {
-    let mut opts = usvg::Options {
-        font_family: "DejaVu Sans".to_string(),
-        ..Default::default()
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/// Convert an SVG string into an HTTP response in the requested format.
+pub fn into_response(svg_str: &str, format: &Format) -> Response {
+    let body = match format {
+        Format::Svg => return svg_response(svg_str),
+        Format::Png => svg_to_png(svg_str),
+        Format::Jpeg => svg_to_jpeg(svg_str),
     };
-    opts.fontdb_mut()
-        .load_font_data(include_bytes!("../fonts/DejaVuSans-Bold.ttf").to_vec());
-    usvg::Tree::from_str(svg, &opts).map_err(|e| format!("SVG parse error: {}", e))
+
+    match body {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, format.content_type()),
+                (header::CACHE_CONTROL, "public, max-age=3600"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
-/// Render an SVG string to PNG bytes.
-pub fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
-    let tree = parse_svg(svg)?;
-
-    let size = tree.size();
-    let width = size.width().ceil() as u32;
-    let height = size.height().ceil() as u32;
-
-    let mut pixmap =
-        resvg::tiny_skia::Pixmap::new(width, height).ok_or("failed to create pixmap")?;
-
-    resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
-
-    pixmap
-        .encode_png()
-        .map_err(|e| format!("PNG encode error: {}", e))
+fn svg_response(svg_str: &str) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        svg_str.to_owned(),
+    )
+        .into_response()
 }
 
-/// Render an SVG string to JPEG bytes.
-pub fn svg_to_jpeg(svg: &str) -> Result<Vec<u8>, String> {
-    let tree = parse_svg(svg)?;
+/// Rasterize SVG to a `tiny_skia::Pixmap`.
+fn render_pixmap(
+    svg: &str,
+    background: Option<resvg::tiny_skia::Color>,
+) -> Result<resvg::tiny_skia::Pixmap, AppError> {
+    let tree = usvg::Tree::from_str(svg, &USVG_OPTIONS)
+        .map_err(|e| AppError::Render(e.to_string()))?;
 
     let size = tree.size();
-    let width = size.width().ceil() as u32;
-    let height = size.height().ceil() as u32;
+    let w = size.width().ceil() as u32;
+    let h = size.height().ceil() as u32;
 
-    let mut pixmap =
-        resvg::tiny_skia::Pixmap::new(width, height).ok_or("failed to create pixmap")?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h)
+        .ok_or_else(|| AppError::Render("failed to create pixmap".into()))?;
 
-    // White background for JPEG (no alpha channel)
-    pixmap.fill(resvg::tiny_skia::Color::WHITE);
-
-    resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
-
-    // Convert RGBA to RGB for JPEG
-    let rgba = pixmap.data();
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-    for pixel in rgba.chunks(4) {
-        rgb.push(pixel[0]);
-        rgb.push(pixel[1]);
-        rgb.push(pixel[2]);
+    if let Some(bg) = background {
+        pixmap.fill(bg);
     }
 
+    resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    Ok(pixmap)
+}
+
+fn svg_to_png(svg: &str) -> Result<Vec<u8>, AppError> {
+    let pixmap = render_pixmap(svg, None)?;
+    pixmap.encode_png().map_err(|e| AppError::Render(e.to_string()))
+}
+
+fn svg_to_jpeg(svg: &str) -> Result<Vec<u8>, AppError> {
+    let pixmap = render_pixmap(svg, Some(resvg::tiny_skia::Color::WHITE))?;
+
+    let rgba = pixmap.data();
+    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|px| &px[..3]).copied().collect();
+
+    let w = pixmap.width();
+    let h = pixmap.height();
     let mut buf = Vec::new();
-    let encoder = JpegEncoder::new_with_quality(&mut buf, 90);
-    encoder
-        .write_image(&rgb, width, height, image::ExtendedColorType::Rgb8)
-        .map_err(|e| format!("JPEG encode error: {}", e))?;
+    JpegEncoder::new_with_quality(&mut buf, 90)
+        .write_image(&rgb, w, h, image::ExtendedColorType::Rgb8)
+        .map_err(|e| AppError::Render(e.to_string()))?;
 
     Ok(buf)
 }

@@ -1,93 +1,116 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-/// Calculated toxicity metrics for a subreddit.
-#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+// ---------------------------------------------------------------------------
+// Reddit API data models
+// ---------------------------------------------------------------------------
+
+/// Generic Reddit listing envelope — works for both posts and comments.
+#[derive(Debug, Deserialize)]
+pub struct Listing<T> {
+    pub data: ListingData<T>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListingData<T> {
+    pub children: Vec<Child<T>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Child<T> {
+    pub data: T,
+}
+
+/// The fields we actually use from a Reddit post.
+#[derive(Debug, Deserialize)]
+pub struct PostData {
+    #[serde(default)]
+    pub num_comments: u64,
+    #[serde(default = "default_ratio")]
+    pub upvote_ratio: f64,
+    #[serde(default)]
+    pub permalink: String,
+    #[serde(default)]
+    pub author: String,
+}
+
+fn default_ratio() -> f64 {
+    1.0
+}
+
+/// The fields we actually use from a Reddit comment.
+#[derive(Debug, Deserialize)]
+pub struct CommentData {
+    pub score: Option<i64>,
+    #[serde(default)]
+    pub author: String,
+}
+
+// ---------------------------------------------------------------------------
+// Toxicity scoring
+// ---------------------------------------------------------------------------
+
+/// Final toxicity result for a subreddit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToxicityMetrics {
     pub subreddit: String,
+    pub score: f64,
     pub new_avg_upvote_ratio: f64,
     pub negative_comment_pct: f64,
     pub op_negative_pct: f64,
-    pub score: f64,
 }
 
-/// Raw Reddit listing response structures.
-#[derive(Debug, Deserialize)]
-pub struct Listing {
-    pub data: ListingData,
+/// A post paired with its comment thread — input to [`analyze_comments`].
+pub struct PostComments {
+    pub post_author: String,
+    pub comments: Vec<Child<CommentData>>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ListingData {
-    pub children: Vec<ListingChild>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ListingChild {
-    pub data: serde_json::Value,
-}
-
-/// Comment sampling results.
+/// Intermediate comment-analysis results.
 pub struct CommentStats {
     pub negative_comment_pct: f64,
     pub op_negative_pct: f64,
 }
 
-/// Average upvote_ratio across posts that have at least 1 comment.
-pub fn avg_upvote_ratio(posts: &[ListingChild]) -> f64 {
-    let mut total = 0.0_f64;
-    let mut count = 0_usize;
+/// Average `upvote_ratio` across posts that have at least one comment.
+pub fn avg_upvote_ratio(posts: &[Child<PostData>]) -> f64 {
+    let (sum, count) = posts
+        .iter()
+        .filter(|c| c.data.num_comments > 0)
+        .fold((0.0, 0usize), |(sum, n), c| {
+            (sum + c.data.upvote_ratio, n + 1)
+        });
 
-    for child in posts {
-        let has_comments = child
-            .data
-            .get("num_comments")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0)
-            > 0;
-        if !has_comments {
-            continue;
-        }
-        if let Some(ratio) = child.data.get("upvote_ratio").and_then(|v| v.as_f64()) {
-            total += ratio;
-            count += 1;
-        }
-    }
-
-    if count > 0 {
-        total / count as f64
-    } else {
-        0.9
-    }
+    if count > 0 { sum / count as f64 } else { 0.9 }
 }
 
-/// Analyze comment listings and compute negative comment stats.
-///
-/// `post_comments` is a list of (post_author, comment_listing_children) pairs.
-/// Each platform fetches comments differently but passes the parsed results here.
-pub fn analyze_comments(post_comments: &[(String, Vec<ListingChild>)]) -> CommentStats {
-    let mut total_comments = 0_usize;
-    let mut negative_comments = 0_usize;
-    let mut op_total = 0_usize;
-    let mut op_negative = 0_usize;
+/// Iterate over posts that have at least one comment.
+pub fn posts_with_comments(posts: &[Child<PostData>]) -> impl Iterator<Item = &Child<PostData>> {
+    posts.iter().filter(|c| c.data.num_comments > 0)
+}
 
-    for (post_author, comments) in post_comments {
-        for comment in comments {
-            let score = match comment.data.get("score").and_then(|v| v.as_i64()) {
+/// Analyze comment threads and compute negativity statistics.
+///
+/// A comment is "negative" if its score is below 2. Reddit auto-upvotes
+/// your own comment to 1, so `score < 2` means nobody else upvoted it.
+pub fn analyze_comments(threads: &[PostComments]) -> CommentStats {
+    let mut total = 0usize;
+    let mut negative = 0usize;
+    let mut op_total = 0usize;
+    let mut op_negative = 0usize;
+
+    for thread in threads {
+        for comment in &thread.comments {
+            let score = match comment.data.score {
                 Some(s) => s,
                 None => continue,
             };
-            let author = comment
-                .data
-                .get("author")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
 
-            total_comments += 1;
+            total += 1;
             if score < 2 {
-                negative_comments += 1;
+                negative += 1;
             }
 
-            if !post_author.is_empty() && author == post_author {
+            if !thread.post_author.is_empty() && comment.data.author == thread.post_author {
                 op_total += 1;
                 if score < 2 {
                     op_negative += 1;
@@ -97,54 +120,40 @@ pub fn analyze_comments(post_comments: &[(String, Vec<ListingChild>)]) -> Commen
     }
 
     CommentStats {
-        negative_comment_pct: if total_comments > 0 {
-            negative_comments as f64 / total_comments as f64
-        } else {
-            0.0
-        },
-        op_negative_pct: if op_total > 0 {
-            op_negative as f64 / op_total as f64
-        } else {
-            0.0
-        },
+        negative_comment_pct: ratio(negative, total),
+        op_negative_pct: ratio(op_negative, op_total),
     }
 }
 
 /// Compute the final toxicity score from raw metrics.
+///
+/// The upvote ratio is remapped from its natural range (0.60–0.95) to 0.0–1.0
+/// before weighting. This stretches the narrow band Reddit ratios occupy into
+/// the full score range.
 pub fn compute_score(
     subreddit: &str,
     new_avg_ratio: f64,
-    comment_stats: &CommentStats,
+    stats: &CommentStats,
 ) -> ToxicityMetrics {
-    // Remap upvote ratio from its natural range (0.60–0.95) to 0.0–1.0.
     let ratio_normalized = ((0.95 - new_avg_ratio) / 0.35).clamp(0.0, 1.0);
 
-    // Weights: upvote ratio 55%, OP comment negativity 30%, general comments 15%
-    let raw_score = (ratio_normalized * 55.0)
-        + (comment_stats.op_negative_pct * 30.0)
-        + (comment_stats.negative_comment_pct * 15.0);
-
-    let score = raw_score.clamp(0.0, 100.0);
+    let raw = (ratio_normalized * 55.0)
+        + (stats.op_negative_pct * 30.0)
+        + (stats.negative_comment_pct * 15.0);
 
     ToxicityMetrics {
-        subreddit: subreddit.to_string(),
+        subreddit: subreddit.to_owned(),
+        score: raw.clamp(0.0, 100.0),
         new_avg_upvote_ratio: new_avg_ratio,
-        negative_comment_pct: comment_stats.negative_comment_pct,
-        op_negative_pct: comment_stats.op_negative_pct,
-        score,
+        negative_comment_pct: stats.negative_comment_pct,
+        op_negative_pct: stats.op_negative_pct,
     }
 }
 
-/// Filter posts that have at least 1 comment (useful for comment sampling).
-pub fn posts_with_comments(posts: &[ListingChild]) -> Vec<&ListingChild> {
-    posts
-        .iter()
-        .filter(|c| {
-            c.data
-                .get("num_comments")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        })
-        .collect()
+fn ratio(numerator: usize, denominator: usize) -> f64 {
+    if denominator > 0 {
+        numerator as f64 / denominator as f64
+    } else {
+        0.0
+    }
 }
