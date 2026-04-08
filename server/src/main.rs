@@ -33,8 +33,9 @@ async fn main() {
 
     let client_id = std::env::var("REDDIT_CLIENT_ID").ok();
     let client_secret = std::env::var("REDDIT_CLIENT_SECRET").ok();
+    let proxy_url = std::env::var("PROXY_URL").ok();
 
-    let reddit = RedditClient::new(client_id, client_secret);
+    let reddit = RedditClient::new(client_id, client_secret, proxy_url);
     let state = AppState::new(reddit, cache_ttl_hours);
 
     let app = Router::new()

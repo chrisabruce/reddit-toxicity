@@ -22,11 +22,20 @@ pub struct RedditClient {
 }
 
 impl RedditClient {
-    pub fn new(client_id: Option<String>, client_secret: Option<String>) -> Self {
-        let http = Client::builder()
-            .user_agent(oauth::USER_AGENT)
-            .build()
-            .expect("failed to build HTTP client");
+    pub fn new(
+        client_id: Option<String>,
+        client_secret: Option<String>,
+        proxy_url: Option<String>,
+    ) -> Self {
+        let mut builder = Client::builder().user_agent(oauth::USER_AGENT);
+
+        if let Some(ref url) = proxy_url {
+            let proxy = reqwest::Proxy::all(url).expect("invalid PROXY_URL");
+            builder = builder.proxy(proxy);
+            tracing::info!(%url, "using SOCKS5 proxy for Reddit requests");
+        }
+
+        let http = builder.build().expect("failed to build HTTP client");
 
         let oauth = match (client_id, client_secret) {
             (Some(id), Some(secret)) if !id.is_empty() && !secret.is_empty() => {
