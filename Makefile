@@ -1,9 +1,43 @@
-IMAGE   := reddit-toxicity
+IMAGE     := reddit-toxicity
 CONTAINER := reddit-toxicity
-PORT    ?= 3000
-HOST    ?= 0.0.0.0
+PORT      ?= 3000
+HOST      ?= 0.0.0.0
+BIN        = target/release/reddit-toxicity
+BIN_COMPACT = target/compact/reddit-toxicity
 
-.PHONY: build run stop restart logs status clean
+.PHONY: build build-compact run stop restart logs status clean size mem
+
+## Build release binary
+build-bin:
+	cargo build -p reddit-toxicity-server --release
+
+## Build smallest possible binary (LTO + strip + opt-level=z)
+build-compact:
+	cargo build -p reddit-toxicity-server --profile compact
+	@echo ""
+	@ls -lh $(BIN_COMPACT)
+	@echo ""
+	@echo "Binary: $(BIN_COMPACT)"
+
+## Show binary sizes for both profiles
+size: build-bin build-compact
+	@echo ""
+	@echo "=== Binary sizes ==="
+	@printf "  release: " && ls -lh $(BIN) | awk '{print $$5}'
+	@printf "  compact: " && ls -lh $(BIN_COMPACT) | awk '{print $$5}'
+
+## Show memory usage of the running server
+mem:
+	@PID=$$(pgrep -f reddit-toxicity); \
+	if [ -z "$$PID" ]; then \
+		echo "Server is not running."; \
+		exit 1; \
+	fi; \
+	echo "PID: $$PID"; \
+	ps -o pid,rss,vsz,command -p $$PID | head -2; \
+	echo ""; \
+	RSS=$$(ps -o rss= -p $$PID | tr -d ' '); \
+	echo "RSS (physical memory): $$(echo "scale=1; $$RSS / 1024" | bc) MB"
 
 ## Build the Docker image
 build:
