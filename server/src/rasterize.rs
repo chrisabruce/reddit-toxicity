@@ -36,8 +36,10 @@ impl Format {
 
 /// Parse SVG string into a usvg tree with the embedded font available.
 fn parse_svg(svg: &str) -> Result<usvg::Tree, String> {
-    let mut opts = usvg::Options::default();
-    opts.font_family = "DejaVu Sans".to_string();
+    let mut opts = usvg::Options {
+        font_family: "DejaVu Sans".to_string(),
+        ..Default::default()
+    };
     opts.fontdb_mut()
         .load_font_data(include_bytes!("../fonts/DejaVuSans-Bold.ttf").to_vec());
     usvg::Tree::from_str(svg, &opts).map_err(|e| format!("SVG parse error: {}", e))
