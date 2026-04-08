@@ -80,7 +80,11 @@ pub fn avg_upvote_ratio(posts: &[Child<PostData>]) -> f64 {
             (sum + c.data.upvote_ratio, n + 1)
         });
 
-    if count > 0 { sum / count as f64 } else { 0.9 }
+    if count > 0 {
+        sum / count as f64
+    } else {
+        0.9
+    }
 }
 
 /// Iterate over posts that have at least one comment.
@@ -130,11 +134,7 @@ pub fn analyze_comments(threads: &[PostComments]) -> CommentStats {
 /// The upvote ratio is remapped from its natural range (0.60–0.95) to 0.0–1.0
 /// before weighting. This stretches the narrow band Reddit ratios occupy into
 /// the full score range.
-pub fn compute_score(
-    subreddit: &str,
-    new_avg_ratio: f64,
-    stats: &CommentStats,
-) -> ToxicityMetrics {
+pub fn compute_score(subreddit: &str, new_avg_ratio: f64, stats: &CommentStats) -> ToxicityMetrics {
     let ratio_normalized = ((0.95 - new_avg_ratio) / 0.35).clamp(0.0, 1.0);
 
     let raw = (ratio_normalized * 55.0)

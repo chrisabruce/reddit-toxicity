@@ -64,15 +64,30 @@ impl RedditClient {
                 }))
             }
             _ => {
-                tracing::warn!("no Reddit OAuth credentials — using public API (shared rate limit)");
+                tracing::warn!(
+                    "no Reddit OAuth credentials — using public API (shared rate limit)"
+                );
                 None
             }
         };
 
-        let base_url = if oauth.is_some() { oauth::API_BASE } else { oauth::PUBLIC_BASE };
-        let delay = if oauth.is_some() { Duration::from_millis(100) } else { Duration::from_millis(200) };
+        let base_url = if oauth.is_some() {
+            oauth::API_BASE
+        } else {
+            oauth::PUBLIC_BASE
+        };
+        let delay = if oauth.is_some() {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_millis(200)
+        };
 
-        Self { http, oauth, base_url, delay }
+        Self {
+            http,
+            oauth,
+            base_url,
+            delay,
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -80,7 +95,10 @@ impl RedditClient {
     // -----------------------------------------------------------------------
 
     async fn access_token(&self) -> Result<String, AppError> {
-        let creds = self.oauth.as_ref().expect("access_token called without OAuth");
+        let creds = self
+            .oauth
+            .as_ref()
+            .expect("access_token called without OAuth");
 
         // Fast path — read lock.
         {
@@ -117,7 +135,8 @@ impl RedditClient {
 
         *guard = Some(CachedToken {
             access_token: token_resp.access_token.clone(),
-            expires_at: Instant::now() + Duration::from_secs(token_resp.expires_in.saturating_sub(60)),
+            expires_at: Instant::now()
+                + Duration::from_secs(token_resp.expires_in.saturating_sub(60)),
         });
 
         Ok(token_resp.access_token)
@@ -128,7 +147,10 @@ impl RedditClient {
     // -----------------------------------------------------------------------
 
     fn listing_url(&self, subreddit: &str, sort: &str) -> String {
-        format!("{}/r/{}/{}.json?limit=100&raw_json=1", self.base_url, subreddit, sort)
+        format!(
+            "{}/r/{}/{}.json?limit=100&raw_json=1",
+            self.base_url, subreddit, sort
+        )
     }
 
     fn comments_url(&self, permalink: &str) -> String {
@@ -218,6 +240,8 @@ impl RedditClient {
             }
         }
 
-        resp.json().await.map_err(|e| AppError::JsonParse(e.to_string()))
+        resp.json()
+            .await
+            .map_err(|e| AppError::JsonParse(e.to_string()))
     }
 }

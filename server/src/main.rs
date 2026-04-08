@@ -24,12 +24,18 @@ impl Config {
     fn from_env() -> Self {
         Self {
             host: env_or("HOST", "0.0.0.0"),
-            port: env_or("PORT", "3000").parse().expect("PORT must be a number"),
+            port: env_or("PORT", "3000")
+                .parse()
+                .expect("PORT must be a number"),
             cache_ttl_hours: env_or("CACHE_TTL_HOURS", "24")
                 .parse()
                 .expect("CACHE_TTL_HOURS must be a number"),
-            client_id: std::env::var("REDDIT_CLIENT_ID").ok().filter(|s| !s.is_empty()),
-            client_secret: std::env::var("REDDIT_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
+            client_id: std::env::var("REDDIT_CLIENT_ID")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            client_secret: std::env::var("REDDIT_CLIENT_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
             proxy_url: std::env::var("PROXY_URL").ok().filter(|s| !s.is_empty()),
         }
     }
@@ -48,13 +54,18 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
-    let reddit = fetcher::RedditClient::new(config.client_id, config.client_secret, config.proxy_url);
+    let reddit =
+        fetcher::RedditClient::new(config.client_id, config.client_secret, config.proxy_url);
     let state = state::AppState::new(reddit, config.cache_ttl_hours);
 
     let app = Router::new()
         .route("/", axum::routing::get(routes::about))
         .route("/about", axum::routing::get(routes::about))
         .route("/health", axum::routing::get(routes::health))
+        .route(
+            "/card/{subreddit}",
+            axum::routing::get(routes::social_card_image),
+        )
         .route("/toxicity/r/{subreddit}", axum::routing::get(routes::badge))
         .route("/toxicity/{subreddit}", axum::routing::get(routes::badge))
         .layer(ConcurrencyLimitLayer::new(20))
@@ -64,7 +75,10 @@ async fn main() {
         .parse()
         .expect("invalid HOST:PORT");
 
-    tracing::info!("listening on {addr} (cache TTL: {}h)", config.cache_ttl_hours);
+    tracing::info!(
+        "listening on {addr} (cache TTL: {}h)",
+        config.cache_ttl_hours
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

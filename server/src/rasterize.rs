@@ -111,8 +111,8 @@ fn render_pixmap(
     svg: &str,
     background: Option<resvg::tiny_skia::Color>,
 ) -> Result<resvg::tiny_skia::Pixmap, AppError> {
-    let tree = usvg::Tree::from_str(svg, &USVG_OPTIONS)
-        .map_err(|e| AppError::Render(e.to_string()))?;
+    let tree =
+        usvg::Tree::from_str(svg, &USVG_OPTIONS).map_err(|e| AppError::Render(e.to_string()))?;
 
     let size = tree.size();
     let w = size.width().ceil() as u32;
@@ -125,20 +125,65 @@ fn render_pixmap(
         pixmap.fill(bg);
     }
 
-    resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::default(),
+        &mut pixmap.as_mut(),
+    );
     Ok(pixmap)
 }
 
 fn svg_to_png(svg: &str) -> Result<Vec<u8>, AppError> {
     let pixmap = render_pixmap(svg, None)?;
-    pixmap.encode_png().map_err(|e| AppError::Render(e.to_string()))
+    pixmap
+        .encode_png()
+        .map_err(|e| AppError::Render(e.to_string()))
+}
+
+/// Render the badge centered on a 1200×630 dark canvas — the recommended
+/// size for Twitter/OG social card images. Returns PNG bytes.
+pub fn social_card_png(svg: &str) -> Result<Vec<u8>, AppError> {
+    use resvg::tiny_skia::{Color, Pixmap, Transform};
+
+    const CARD_W: u32 = 1200;
+    const CARD_H: u32 = 630;
+
+    let bg = Color::from_rgba8(17, 17, 22, 255); // #111116
+
+    // Render the badge at its natural size
+    let badge = render_pixmap(svg, None)?;
+
+    // Create the card canvas
+    let mut card = Pixmap::new(CARD_W, CARD_H)
+        .ok_or_else(|| AppError::Render("failed to create card pixmap".into()))?;
+    card.fill(bg);
+
+    // Center the badge on the canvas
+    let x = (CARD_W as i32 - badge.width() as i32) / 2;
+    let y = (CARD_H as i32 - badge.height() as i32) / 2;
+
+    card.draw_pixmap(
+        x,
+        y,
+        badge.as_ref(),
+        &resvg::tiny_skia::PixmapPaint::default(),
+        Transform::default(),
+        None,
+    );
+
+    card.encode_png()
+        .map_err(|e| AppError::Render(e.to_string()))
 }
 
 fn svg_to_jpeg(svg: &str) -> Result<Vec<u8>, AppError> {
     let pixmap = render_pixmap(svg, Some(resvg::tiny_skia::Color::WHITE))?;
 
     let rgba = pixmap.data();
-    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|px| &px[..3]).copied().collect();
+    let rgb: Vec<u8> = rgba
+        .chunks_exact(4)
+        .flat_map(|px| &px[..3])
+        .copied()
+        .collect();
 
     let w = pixmap.width();
     let h = pixmap.height();

@@ -2,7 +2,7 @@
 
 A lightweight Rust microservice that generates dynamic toxicity badges for any subreddit. Outputs SVG, PNG, or JPEG. Embed them anywhere with a simple `<img>` tag.
 
-![r/rust badge](http://localhost:3000/toxicity/rust.svg?size=420)
+![r/rust badge](https://sifteo.io/toxicity/rust.svg?size=420)
 
 ```html
 <img src="https://yourdomain.com/toxicity/filmmakers.svg?size=400" alt="toxicity badge">

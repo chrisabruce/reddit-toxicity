@@ -30,7 +30,7 @@ pub async fn badge(
                     .get(header::HOST)
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("localhost:3000");
-                social_card_response(host, subreddit, &metrics)
+                social_card_html(host, subreddit, &metrics)
             }
             _ => {
                 let svg_str = svg::render_badge(&metrics, width);
@@ -41,11 +41,32 @@ pub async fn badge(
     }
 }
 
+/// 1200×630 PNG social card image — served at `/card/{subreddit}.png`.
+/// This is what social media crawlers fetch for the `og:image` tag.
+pub async fn social_card_image(State(state): State<AppState>, Path(raw): Path<String>) -> Response {
+    let subreddit = raw.strip_suffix(".png").unwrap_or(&raw);
+
+    match state.get_metrics(subreddit).await {
+        Ok(metrics) => {
+            let svg_str = svg::render_badge(&metrics, 600);
+            match rasterize::social_card_png(&svg_str) {
+                Ok(bytes) => (
+                    [
+                        (header::CONTENT_TYPE, "image/png"),
+                        (header::CACHE_CONTROL, "public, max-age=3600"),
+                    ],
+                    bytes,
+                )
+                    .into_response(),
+                Err(e) => e.into_response(),
+            }
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
 /// HTML page with Open Graph and Twitter Card meta tags for social media unfurling.
-///
-/// When this URL is shared on Twitter, Slack, Discord, LinkedIn, etc., the platform
-/// crawls it, reads the `og:image` tag, and displays the badge as a rich preview card.
-fn social_card_response(host: &str, subreddit: &str, metrics: &ToxicityMetrics) -> Response {
+fn social_card_html(host: &str, subreddit: &str, metrics: &ToxicityMetrics) -> Response {
     let score = metrics.score.round() as u32;
     let label = match metrics.score {
         s if s <= 20.0 => "Very Low",
@@ -55,9 +76,9 @@ fn social_card_response(host: &str, subreddit: &str, metrics: &ToxicityMetrics) 
         _ => "Very High",
     };
 
-    // Point og:image at the PNG version — social platforms need raster images
-    let image_url = format!("https://{host}/toxicity/r/{subreddit}.png?size=600");
-    let page_url = format!("https://{host}/toxicity/r/{subreddit}.html");
+    // og:image points to the dedicated 1200×630 social card endpoint
+    let image_url = format!("https://{host}/card/{subreddit}.png");
+    let page_url = format!("https://{host}/toxicity/{subreddit}.html");
     let reddit_url = format!("https://www.reddit.com/r/{subreddit}");
 
     let title = format!("r/{subreddit} — Toxicity Index: {score}/100");
@@ -79,8 +100,9 @@ fn social_card_response(host: &str, subreddit: &str, metrics: &ToxicityMetrics) 
   <meta property="og:title" content="{title}">
   <meta property="og:description" content="{description}">
   <meta property="og:image" content="{image_url}">
-  <meta property="og:image:width" content="600">
-  <meta property="og:image:height" content="171">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/png">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
@@ -122,7 +144,7 @@ fn social_card_response(host: &str, subreddit: &str, metrics: &ToxicityMetrics) 
   </style>
 </head>
 <body>
-  <img src="/toxicity/r/{subreddit}.svg?size=500" alt="{title}" width="500" height="143">
+  <img src="/toxicity/{subreddit}.svg?size=500" alt="{title}" width="500" height="143">
   <a href="{reddit_url}">Visit r/{subreddit} on Reddit</a>
   <p class="meta">{description}</p>
 </body>
