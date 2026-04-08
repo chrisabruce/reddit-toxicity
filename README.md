@@ -153,6 +153,7 @@ Returns a toxicity badge for the given subreddit.
 | `.svg` | `image/svg+xml` | Default. Scalable, smallest file size. |
 | `.png` | `image/png` | Rasterized with embedded DejaVu Sans font. |
 | `.jpg` / `.jpeg` | `image/jpeg` | White background, 90% quality. |
+| `.html` | `text/html` | Social card with Open Graph meta tags for link unfurling. |
 | *(none)* | `image/svg+xml` | Falls back to SVG. |
 
 **Query parameters:**
@@ -168,6 +169,7 @@ Returns a toxicity badge for the given subreddit.
 /toxicity/r/politics.png?size=300
 /toxicity/filmmakers.jpg?size=500
 /toxicity/r/rust.jpeg
+/toxicity/r/rust.html     # shareable social card with OG tags
 ```
 
 On error (subreddit not found, Reddit unreachable), a gray error badge is returned in the requested format.

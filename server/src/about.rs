@@ -263,6 +263,7 @@ pub fn page() -> &'static str {
         <option value="svg" selected>.svg</option>
         <option value="png">.png</option>
         <option value="jpg">.jpg</option>
+        <option value="html">.html</option>
       </select>
       <button type="button" id="go-btn">Go</button>
     </div>
@@ -334,6 +335,7 @@ pub fn page() -> &'static str {
       <tr><td><code>.svg</code></td><td>image/svg+xml</td><td>Default. Scalable, smallest size.</td></tr>
       <tr><td><code>.png</code></td><td>image/png</td><td>Rasterized with embedded font.</td></tr>
       <tr><td><code>.jpg</code> / <code>.jpeg</code></td><td>image/jpeg</td><td>White background, 90% quality.</td></tr>
+      <tr><td><code>.html</code></td><td>text/html</td><td>Social card page with Open Graph tags for link unfurling.</td></tr>
     </tbody>
   </table>
 
@@ -368,7 +370,7 @@ pub fn page() -> &'static str {
     <tbody>
       <tr>
         <td><code>/toxicity/r/{sub}.{ext}</code></td>
-        <td>Badge for a subreddit (<code>.svg</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>)</td>
+        <td>Badge for a subreddit (<code>.svg</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>, <code>.html</code>)</td>
       </tr>
       <tr>
         <td><code>/toxicity/{sub}.{ext}</code></td>
@@ -405,15 +407,26 @@ pub fn page() -> &'static str {
       const sub = input.value.trim().replace(/^r\//, "");
       if (!sub) return;
       const ext = formatSelect.value;
-      const path = "/toxicity/r/" + encodeURIComponent(sub) + "." + ext + "?size=500";
+      const encodedSub = encodeURIComponent(sub);
+      const fullUrl = location.origin + "/toxicity/r/" + encodedSub + "." + ext;
 
+      if (ext === "html") {
+        output.innerHTML = "";
+        const a = document.createElement("a");
+        a.href = "/toxicity/r/" + encodedSub + ".html";
+        a.target = "_blank";
+        a.textContent = "Open social card for r/" + sub;
+        output.appendChild(a);
+        embedUrl.innerHTML = "Share: <code title='Click to copy'>" + fullUrl + "</code>";
+        return;
+      }
+
+      const path = "/toxicity/r/" + encodedSub + "." + ext + "?size=500";
       output.innerHTML = "";
       const img = document.createElement("img");
       img.src = path;
       img.alt = "Toxicity badge for r/" + sub;
       output.appendChild(img);
-
-      const fullUrl = location.origin + "/toxicity/r/" + encodeURIComponent(sub) + "." + ext;
       embedUrl.innerHTML = "Embed: <code title='Click to copy'>&lt;img src=\"" + fullUrl + "\"&gt;</code>";
     }
 

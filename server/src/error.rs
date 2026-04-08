@@ -36,7 +36,14 @@ impl AppError {
     /// Render this error as a badge image in the requested format.
     pub fn into_badge_response(self, width: u32, format: &rasterize::Format) -> Response {
         tracing::warn!(error = %self, "badge generation failed");
-        let svg_str = svg::render_error_badge(&self.to_string(), width);
+        let msg = self.to_string();
+
+        // HTML format gets a plain text error — no badge to embed
+        if matches!(format, rasterize::Format::Html) {
+            return (axum::http::StatusCode::BAD_GATEWAY, msg).into_response();
+        }
+
+        let svg_str = svg::render_error_badge(&msg, width);
         rasterize::into_response(&svg_str, format)
     }
 }

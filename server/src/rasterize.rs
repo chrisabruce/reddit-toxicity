@@ -34,6 +34,8 @@ pub enum Format {
     Svg,
     Png,
     Jpeg,
+    /// HTML page with Open Graph meta tags for social media link unfurling.
+    Html,
 }
 
 impl Format {
@@ -45,6 +47,7 @@ impl Format {
             (".jpg", Format::Jpeg),
             (".jpeg", Format::Jpeg),
             (".svg", Format::Svg),
+            (".html", Format::Html),
         ] {
             if let Some(name) = path.strip_suffix(suffix) {
                 return (name, fmt);
@@ -58,6 +61,7 @@ impl Format {
             Format::Svg => "image/svg+xml",
             Format::Png => "image/png",
             Format::Jpeg => "image/jpeg",
+            Format::Html => "text/html; charset=utf-8",
         }
     }
 }
@@ -67,11 +71,15 @@ impl Format {
 // ---------------------------------------------------------------------------
 
 /// Convert an SVG string into an HTTP response in the requested format.
+///
+/// Note: `Format::Html` is handled separately in the route layer since it
+/// needs access to the metrics and request URL for Open Graph tags.
 pub fn into_response(svg_str: &str, format: &Format) -> Response {
     let body = match format {
         Format::Svg => return svg_response(svg_str),
         Format::Png => svg_to_png(svg_str),
         Format::Jpeg => svg_to_jpeg(svg_str),
+        Format::Html => unreachable!("Html format handled in route layer"),
     };
 
     match body {
