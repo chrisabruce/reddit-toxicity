@@ -2,6 +2,13 @@
 resolver = "2"
 members = ["core", "server"]
 
+[workspace.package]
+version = "0.1.0"
+authors = ["Chris Bruce"]
+license = "MIT"
+repository = "https://github.com/chrisabruce/reddit-toxicity"
+edition = "2021"
+
 [profile.compact]
 inherits = "release"
 opt-level = "z"     # optimize for size
