@@ -192,14 +192,22 @@ impl RedditClient {
             .await
             .map_err(|e| format!("reddit API error: {}", e))?;
 
-        if resp.status() == reqwest::StatusCode::NOT_FOUND
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
+        let status = resp.status();
+
+        if status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::FORBIDDEN
         {
-            return Err("subreddit not found".to_string());
+            tracing::debug!(url, %status, "Reddit returned error");
+            return Err(format!("subreddit not found ({})", status.as_u16()));
         }
 
-        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             return Err("rate limited by Reddit".to_string());
+        }
+
+        if !status.is_success() {
+            tracing::warn!(url, %status, "unexpected Reddit response");
+            return Err(format!("Reddit returned HTTP {}", status.as_u16()));
         }
 
         resp.json()
