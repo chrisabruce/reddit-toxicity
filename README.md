@@ -2,10 +2,10 @@
 
 A lightweight Rust microservice that generates dynamic toxicity badges for any subreddit. Outputs SVG, PNG, or JPEG. Embed them anywhere with a simple `<img>` tag.
 
-![r/rust badge](http://localhost:3000/toxicity/r/rust.svg?size=420)
+![r/rust badge](http://localhost:3000/toxicity/rust.svg?size=420)
 
 ```html
-<img src="https://yourdomain.com/toxicity/r/filmmakers.svg?size=400" alt="toxicity badge">
+<img src="https://yourdomain.com/toxicity/filmmakers.svg?size=400" alt="toxicity badge">
 ```
 
 ## How It Works
@@ -57,7 +57,7 @@ cargo run -p reddit-toxicity-server --release
 # Server starts on http://localhost:3000
 ```
 
-Open http://localhost:3000 for the interactive about page, or go directly to a badge at http://localhost:3000/toxicity/r/rust.svg.
+Open http://localhost:3000 for the interactive about page, or go directly to a badge at http://localhost:3000/toxicity/rust.svg.
 
 The server loads `.env` automatically via dotenvy. You can also pass env vars directly.
 
@@ -141,10 +141,9 @@ Interactive about page with live badge preview, methodology, and embedding instr
 
 Returns `ok`. Use for health checks and readiness probes.
 
-### `GET /toxicity/r/{subreddit}.{ext}`
 ### `GET /toxicity/{subreddit}.{ext}`
 
-Returns a toxicity badge for the given subreddit.
+Returns a toxicity badge for the given subreddit. The `/r/` prefix is optional — both `/toxicity/rust.svg` and `/toxicity/r/rust.svg` work.
 
 **Supported formats:**
 
@@ -165,11 +164,11 @@ Returns a toxicity badge for the given subreddit.
 **Examples:**
 
 ```
-/toxicity/r/rust.svg
-/toxicity/r/politics.png?size=300
+/toxicity/rust.svg
+/toxicity/politics.png?size=300
 /toxicity/filmmakers.jpg?size=500
-/toxicity/r/rust.jpeg
-/toxicity/r/rust.html     # shareable social card with OG tags
+/toxicity/rust.html          # shareable social card with OG tags
+/toxicity/r/rust.svg         # /r/ prefix also works
 ```
 
 On error (subreddit not found, Reddit unreachable), a gray error badge is returned in the requested format.
